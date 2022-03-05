@@ -22,5 +22,30 @@ def get_train_test_args():
     parser.add_argument('--sub-file', type=str, default='')
     parser.add_argument('--visualize-predictions', action='store_true')
     parser.add_argument('--eval-every', type=int, default=5000)
+    
+    # For finetune (normally on OOD)
+    parser.add_argument('--do-finetune', action='store_true')
+    parser.add_argument('--pretrain-model-path', type=str, default="save/baseline-02/checkpoint")
+    parser.add_argument('--ft-train-datasets', type=str, default='race,relation_extraction,duorc')
+    parser.add_argument('--ft-val-datasets', type=str, default='race,relation_extraction,duorc')
+    parser.add_argument('--train-ft-dir', type=str, default='datasets/oodomain_train')
+    parser.add_argument('--val-ft-dir', type=str, default='datasets/oodomain_val')
+    
+    args = parser.parse_args()
+    return args
+
+
+def get_aug_dataset_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--save-dir', type=str, default='datasets/oodomain_train_aug')
+    parser.add_argument('--datasets-dir', type=str, default='datasets/oodomain_train')
+    parser.add_argument('--datasets-name', type=str, default='relation_extraction') # race, duorc
+
+    parser.add_argument('--run-name', type=str, default='sr') # sr, rd, ri, rs
+
+    parser.add_argument('--alpha', type=float, default= 0.2) 
+    parser.add_argument('--naugs', type=int, default=4)
+
     args = parser.parse_args()
     return args

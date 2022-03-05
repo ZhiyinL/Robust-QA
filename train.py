@@ -278,6 +278,30 @@ def main():
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
         best_scores = trainer.train(model, train_loader, val_loader, val_dict)
+
+    if args.do_finetune: # do_finetune, pretrain_model_path,save_dir, run_name. finetune_datasets, train_ft_dir, val_ft_dir
+        if not os.path.exists(args.save_dir):
+            os.makedirs(args.save_dir)
+        args.save_dir = util.get_save_dir(args.save_dir, args.run_name)
+        log = util.get_logger(args.save_dir, 'log_train')
+        log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
+        log.info("Preparing Training Data...")
+        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        trainer = Trainer(args, log)
+        path = os.path.join(args.pretrain_model_path)
+        model = DistilBertForQuestionAnswering.from_pretrained(path)
+        model.to(args.device)
+        train_dataset, _ = get_dataset(args, args.ft_train_datasets, args.train_ft_dir, tokenizer, 'train')
+        log.info("Preparing Validation Data...")
+        val_dataset, val_dict = get_dataset(args, args.ft_val_datasets, args.val_ft_dir, tokenizer, 'val')
+        train_loader = DataLoader(train_dataset,
+                                batch_size=args.batch_size,
+                                sampler=RandomSampler(train_dataset))
+        val_loader = DataLoader(val_dataset,
+                                batch_size=args.batch_size,
+                                sampler=SequentialSampler(val_dataset))
+        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
+
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
@@ -307,3 +331,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
