@@ -14,4 +14,6 @@
 
 - Generate EDA Augmentation Dataset with `python3 eda.py --datasets-name race --run-name rd --alpha 0.3 --naugs 1`
 
+- Train a baseline MTL system with Meta-Learning `python metatrain.py --do-train --eval-every 2000 --run-name maml1 --train-datasets 'race,relation_extraction,duorc' --train-dir 'datasets/oodomain_train' --val-dir 'datasets/oodomain_val'` 
 
+(python3 metatrain.py --do-train --eval-every 2000 --run-name maml1 --train-datasets 'race,relation_extraction,duorc' --train-dir 'datasets/oodomain_train' --val-dir 'datasets/oodomain_val')
