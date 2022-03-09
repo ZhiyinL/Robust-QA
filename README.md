@@ -14,6 +14,10 @@
 
 - Generate EDA Augmentation Dataset with `python3 eda.py --datasets-name race --run-name rd --alpha 0.3 --naugs 1`
 
-- Train a baseline MTL system with Meta-Learning `python metatrain.py --do-train --eval-every 2000 --run-name maml1 --train-datasets 'race,relation_extraction,duorc' --train-dir 'datasets/oodomain_train' --val-dir 'datasets/oodomain_val'` 
+- Train a baseline MTL system with Meta-Learning `python metatrain.py --do-train --eval-every 2000 --run-name maml1 --train-dir 'datasets/oodomain_train' --val-dir 'datasets/oodomain_val'` 
 
-(python3 metatrain.py --do-train --eval-every 2000 --run-name maml1 --train-datasets 'race,relation_extraction,duorc' --train-dir 'datasets/oodomain_train' --val-dir 'datasets/oodomain_val')
+- Train Reptile with Meta Dataset Opt1 Constrction `python metatrain.py --do-train --eval-every 2000 --run-name reptile1 --meta-datatype 'opt1' --meta-method 'reptile' --task-num 21 --sample-size 6`
+
+- Train Meta Learning with Meta Dataset Opt2 Constrction `python metatrain.py --do-train --eval-every 2000 --run-name maml1 --meta-datatype 'opt2'`
+
+- add to debugger option: `"args": ["--do-train", "--eval-every", "2000", "--run-name", "maml1", "--train-datasets", "race,relation_extraction,duorc", "--train-dir", "datasets/oodomain_train", "--val-dir", "datasets/oodomain_val"]`
