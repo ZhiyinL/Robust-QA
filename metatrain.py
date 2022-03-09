@@ -25,7 +25,7 @@ from transformers import DistilBertForQuestionAnswering
 from transformers import AdamW
 from tensorboardX import SummaryWriter
 
-
+from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from args import get_train_test_args
@@ -201,7 +201,7 @@ class MetaTrainer():
             return preds, results
         return results
 
-    def train(self, model, metatrain_dataloader, metaeval_dataloader, eval_dataloader, val_dict):
+    def train_maml(self, model, metatrain_dataloader, metaeval_dataloader, eval_dataloader, val_dict):
         device = self.device
         model.to(device)
         optim = AdamW(model.parameters(), lr=self.lr)
@@ -292,6 +292,103 @@ class MetaTrainer():
                             best_scores = curr_score
                             self.save(model)
                     global_idx += 1
+        return best_scores
+    
+    def train_reptile(self, model, metatrain_dataloader, metaeval_dataloader, eval_dataloader, val_dict):
+        device = self.device
+        model.to(device)
+        optim = AdamW(model.parameters(), lr=self.lr)
+        global_idx = 0
+        best_scores = {'F1': -1.0, 'EM': -1.0}
+        tbx = SummaryWriter(self.save_dir)
+
+        for epoch_num in range(self.num_epochs):
+            self.log.info(f'Epoch: {epoch_num}')
+
+            # with torch.enable_grad(), tqdm(total=len(metatrain_dataloader.dataset)) as progress_bar:
+            batch_num = len(metatrain_dataloader)
+            task_num = len(metatrain_dataloader[0])
+            with torch.enable_grad(), tqdm(total=batch_num) as progress_bar: 
+                for b in range(batch_num):
+                    batch_train = metatrain_dataloader[b]
+                    batch_val = metaeval_dataloader[b]
+
+                    for i in range(task_num):
+                        print("task_num{}".format(i))
+                        # sample task
+                        # take k gradient step to get a new model
+                        # OPTIONAL: eval
+                        qry_losses = []
+                        optim.zero_grad()
+                        model.train()
+
+                        new_model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
+                        new_model.load_state_dict(model.state_dict())  # copy? looks okay
+                        new_model.train()
+
+                        inner_opt = torch.optim.SGD(new_model.parameters(), lr=self.inner_lr)
+                        bt = next(iter(batch_train[i]))
+                        input_ids = bt['input_ids'].to(device)
+                        attention_mask = bt['attention_mask'].to(device)
+                        start_positions = bt['start_positions'].to(device)
+                        end_positions = bt['end_positions'].to(device)
+
+                        # K steps of gradient descent
+                        for _ in range(self.n_inner_iter):
+                            outputs = new_model(input_ids, attention_mask=attention_mask,
+                                    start_positions=start_positions,
+                                    end_positions=end_positions)
+                            loss = outputs.loss
+                            inner_opt.zero_grad()
+                            loss.backward()
+                            inner_opt.step()
+
+                        bv = next(iter(batch_val[0]))
+                        input_ids = bv['input_ids'].to(device)
+                        attention_mask = bv['attention_mask'].to(device)
+                        start_positions = bv['start_positions'].to(device)
+                        end_positions = bv['end_positions'].to(device)
+
+                        # The final set of adapted parameters will induce some
+                        # final loss and accuracy on the query dataset.
+                        # These will be used to update the model's meta-parameters.
+                        qry_outputs = new_model(input_ids, attention_mask=attention_mask,
+                                     start_positions=start_positions,
+                                     end_positions=end_positions)
+                        qry_loss = qry_outputs.loss
+                        qry_losses = qry_loss.detach()
+                        
+                        # inject updates into each .grad
+                        for p, new_p in zip(model.parameters(), new_model.parameters()):
+                            if p.grad is None:
+                                p.grad = Variable(torch.zeros(p.size()))
+                            p.grad.data.add_(p.data - new_p.data)
+                        
+                        # update meta-parameters: DONE
+                        optim.step()
+
+                        progress_bar.update(len(input_ids))
+                        progress_bar.set_postfix(epoch=epoch_num, NLL=qry_losses.item())
+                        tbx.add_scalar('train/NLL', qry_losses.item(), global_idx)
+                        if (global_idx % self.eval_every) == 0:
+                            self.log.info(f'Evaluating at step {global_idx}...')
+                            preds, curr_score = self.evaluate(model, eval_dataloader, val_dict, return_preds=True)
+                            results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                            self.log.info('Visualizing in TensorBoard...')
+                            for k, v in curr_score.items():
+                                tbx.add_scalar(f'val/{k}', v, global_idx)
+                            self.log.info(f'Eval {results_str}')
+                            if self.visualize_predictions:
+                                util.visualize(tbx,
+                                            pred_dict=preds,
+                                            gold_dict=val_dict,
+                                            step=global_idx,
+                                            split='val',
+                                            num_visuals=self.num_visuals)
+                            if curr_score['F1'] >= best_scores['F1']:
+                                best_scores = curr_score
+                                self.save(model)
+                        global_idx += 1
         return best_scores
 
 def get_dataset(args, datasets, data_dir, tokenizer, split_name):
@@ -538,7 +635,13 @@ def main():
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
         # best_scores = trainer.train(model, train_loader, val_loader, val_dict)
-        best_scores = trainer.train(model, train_loaders, val_loaders, val_loader, val_dict)
+        if (args.meta_method == "maml"):
+            best_scores = trainer.train_maml(model, train_loaders, val_loaders, val_loader, val_dict)
+        elif (args.meta_method == "reptile"):
+            best_scores = trainer.train_reptile(model, train_loaders, val_loaders, val_loader, val_dict)
+        else:
+            raise Exception("Unsupported meta learning method")
+        
 
     if args.do_finetune: # do_finetune, pretrain_model_path,save_dir, run_name. finetune_datasets, train_ft_dir, val_ft_dir
         if not os.path.exists(args.save_dir):
